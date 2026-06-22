@@ -42,6 +42,7 @@ public class Main{
     void patchInit(){
         try{removals=Files.readAllLines(patchDir.toPath().resolve("removals"));}catch(IOException ex){exceptions.add(ex);}
         checkErrors();
+        System.out.println("Patching (1/1)");
         patch(outDir,patchDir.toPath().resolve("src").toFile(),patchDir.toPath().resolve("additions").toFile(),srcDir);
         checkErrors();
     }
@@ -51,11 +52,12 @@ public class Main{
         List<File>patchFiles=null;
         if(patchDir.exists()&&patchDir.isDirectory())patchFiles=new ArrayList<>(List.of(patchDir.listFiles()));
         if(patchFiles!=null)for(int i=0;i<patchFiles.size();i++)patchFiles.set(i,new File(patchFiles.get(i).getName()));
-        for(File file:srcFiles){
-            if(removals.contains(file.getPath().substring(srcPathLen)))continue;
-            if(file.isDirectory())patch(outDir.toPath().resolve(file.getName()).toFile(),patchDir.toPath().resolve(file.getName()).toFile(),additionsDir.toPath().resolve(file.getName()).toFile(),file);
-            else if(patchFiles!=null&&patchFiles.contains(new File(file.getName()+".patch")))try{patchFile(outDir.toPath().resolve(file.getName()).toFile(),patchDir.toPath().resolve(file.getName()+".patch").toFile(),file);}catch(IOException ex){exceptions.add(ex);}
-            else try{Files.copy(file.toPath(),outDir.toPath().resolve(file.getName()),StandardCopyOption.REPLACE_EXISTING);}catch(IOException ex){exceptions.add(ex);}
+        System.out.println("-> /"+srcDir.getPath().substring(Math.min(srcPathLen,srcDir.getPath().length())));
+        for(File f:srcFiles){
+            if(removals.contains(f.getPath().substring(srcPathLen)))continue;
+            if(f.isDirectory())patch(outDir.toPath().resolve(f.getName()).toFile(),patchDir.toPath().resolve(f.getName()).toFile(),additionsDir.toPath().resolve(f.getName()).toFile(),f);
+            else if(patchFiles!=null&&patchFiles.contains(new File(f.getName()+".patch")))try{patchFile(outDir.toPath().resolve(f.getName()).toFile(),patchDir.toPath().resolve(f.getName()+".patch").toFile(),f);}catch(IOException ex){exceptions.add(ex);}
+            else try{Files.copy(f.toPath(),outDir.toPath().resolve(f.getName()),StandardCopyOption.REPLACE_EXISTING);}catch(IOException ex){exceptions.add(ex);}
         }
         if(additionsDir.exists())try{FileUtils.copyDirectory(additionsDir,outDir);}catch(IOException ex){exceptions.add(ex);}
     }
@@ -74,13 +76,19 @@ public class Main{
     }
     void genInit()throws IOException{
         removals=new ArrayList<>();
+        System.out.println("(1/3) Generating removals");
         genRemovals(patchDir,srcDir);
+        checkErrors();
         FileUtils.writeLines(outDir.toPath().resolve("removals").toFile(),removals);
+        System.out.println("(2/3) Generating additions");
         genAdditions(outDir.toPath().resolve("additions").toFile(),patchDir,srcDir);
+        checkErrors();
+        System.out.println("(3/3) Generating patches");
         genPatches(outDir.toPath().resolve("src").toFile(),patchDir,srcDir);
         checkErrors();
     }
     void genRemovals(File patchDir,File srcDir){
+        System.out.println("-> /"+srcDir.getPath().substring(Math.min(srcPathLen,srcDir.getPath().length())));
         ArrayList<String>patchFiles=new ArrayList<>();
         ArrayList<File>srcFiles=new ArrayList<>(List.of(srcDir.listFiles()));
         List.of(patchDir.listFiles()).forEach(f->patchFiles.add(f.getName()));
@@ -93,6 +101,7 @@ public class Main{
         }
     }
     void genAdditions(File additionsDir,File patchDir,File srcDir){
+        System.out.println("-> /"+srcDir.getPath().substring(Math.min(srcPathLen,srcDir.getPath().length())));
         ArrayList<File>patchFiles=new ArrayList<>(List.of(patchDir.listFiles()));
         ArrayList<String>srcFiles=new ArrayList<>();
         List.of(srcDir.listFiles()).forEach(f->srcFiles.add(f.getName()));
@@ -106,13 +115,15 @@ public class Main{
                 }catch(IOException ex){exceptions.add(ex);}
                 continue;
             }
-            if(f.isDirectory())genAdditions(additionsDir.toPath().resolve(f.getName()).toFile(),patchDir.toPath().resolve(f.getName()).toFile(),f);
+            if(f.isDirectory())genAdditions(additionsDir.toPath().resolve(f.getName()).toFile(),f,srcDir.toPath().resolve(f.getName()).toFile());
         }
     }
     void genPatches(File outDir,File patchDir,File srcDir){
+        if(patchDir.listFiles()==null)return;
         ArrayList<File>patchFiles=new ArrayList<>(List.of(patchDir.listFiles()));
         ArrayList<String>srcFiles=new ArrayList<>();
         if(!srcDir.exists())return;
+        System.out.println("-> /"+srcDir.getPath().substring(Math.min(srcPathLen,srcDir.getPath().length())));
         List.of(srcDir.listFiles()).forEach(f->srcFiles.add(f.getName()));
         for(File f:patchFiles){
             if(!f.isDirectory()&&srcFiles.contains(f.getName()))try{genPatchFile(outDir.toPath().resolve(f.getName()+".patch").toFile(),f,srcDir.toPath().resolve(f.getName()).toFile());}catch(IOException ex){exceptions.add(ex);}
@@ -120,33 +131,54 @@ public class Main{
         }
     }
     void genPatchFile(File outFile,File patchSrcFile,File srcFile)throws IOException{
-        List<String>patchLines=Files.readAllLines(patchSrcFile.toPath()),srcLines=Files.readAllLines(srcFile.toPath()),patches=new ArrayList<>();
-        int sSize=srcLines.size(),pSize=patchLines.size();
-        int[][]dp=new int[sSize+1][pSize+1];
-        for(int x=sSize-1;x>=0;x--)for(int y=pSize-1;y>=0;y--){
-            if(srcLines.get(x).equals(patchLines.get(y)))dp[x][y]=dp[x+1][y+1]+1;
-            else dp[x][y]=Math.max(dp[x+1][y],dp[x][y+1]);
-        }
-        int x=0,y=0,n=0;
-        while(x<sSize&&y<pSize){
-            if(srcLines.get(x).equals(patchLines.get(y))){
-                x++;
-                y++;
-                n++;
+        BufferedReader br=new BufferedReader(new FileReader(patchSrcFile));
+        List<String>patchLines=br.readAllLines();
+        br.close();
+        List<String>srcLines=(br=new BufferedReader(new FileReader(srcFile))).readAllLines();
+        br.close();
+        int srcSize=srcLines.size(),patchSize=patchLines.size(),max=srcSize+patchSize,offset=max+1;
+        int[]V=new int[2*max+3];
+        List<int[]>prevVs=new ArrayList<>();
+        int D=0;
+        for(int d=0;d<=max;d++){
+            for(int k=-d;k<=d;k+=2){
+                int x;
+                if(k==-d||(k!=d&&V[k-1+offset]<V[k+1+offset]))x=V[k+1+offset];
+                else x=V[k-1+offset]+1;
+                int y=x-k;
+                while(x<srcSize&&y<patchSize&&srcLines.get(x).equals(patchLines.get(y))){
+                    x++;
+                    y++;
+                }
+                V[k+offset]=x;
             }
-            else if(dp[x+1][y]>=dp[x][y+1]){
-                patches.add("-"+n);
-                x++;
+            prevVs.add(V.clone());
+            if(V[srcSize-patchSize+offset]>=srcSize){
+                D=d;
+                break;
+            }
+        }
+        if(D==0)return;
+        List<String>patches=new ArrayList<>();
+        srcSize--;
+        patchSize--;
+        for(int d=D;d>0;d--){
+            int[]prevV=prevVs.get(d-1);
+            int k=srcSize-patchSize,x=srcSize,y=patchSize;
+            for(;x>0&&y>0&&srcLines.get(x).equals(patchLines.get(y));x--)y--;
+            if(k==-d||(k!=d&&prevV[k-1+offset]<prevV[k+1+offset])){
+                patches.addFirst("+"+y+"   "+patchLines.get(y));
+                srcSize=x;
+                patchSize=y-1;
             }
             else{
-                patches.add("+"+n+"   "+patchLines.get(y));
-                y++;
-                n++;
+                patches.addFirst("-"+(y+1));
+                srcSize=x-1;
+                patchSize=y;
             }
         }
-        for(;x<sSize;x++,n++)patches.add("-"+n);
-        for(;y<pSize;y++,n++)patches.add("+"+n+"   "+patchLines.get(y));
         if(!patches.isEmpty())FileUtils.writeLines(outFile,patches);
+        System.gc();
     }
     void checkErrors(){
         if(!exceptions.isEmpty()){
