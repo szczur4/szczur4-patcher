@@ -6,7 +6,7 @@
 
     <groupId>org.example</groupId>
     <artifactId>szczur4-patcher</artifactId>
-    <version>v1.0r</version>
+    <version>v1.1r</version>
     <dependencies>
         <dependency>
             <groupId>net.sf.jopt-simple</groupId>
